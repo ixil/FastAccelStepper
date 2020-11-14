@@ -25,13 +25,13 @@ void inject_fill_interrupt(int mark);
 #define pinMode(a, b) \
   {}
 
-extern char TCCR1A;
-extern char TCCR1B;
-extern char TCCR1C;
-extern char TIMSK1;
-extern char TIFR1;
-extern unsigned short OCR1A;
-extern unsigned short OCR1B;
+extern char TCCR4A;
+extern char TCCR4B;
+extern char TCCR4C;
+extern char TIMSK4;
+extern char TIFR4;
+extern unsigned short OCR4A;
+extern unsigned short OCR4B;
 
 #define test(x, msg) \
   if (!(x)) {        \

@@ -223,7 +223,7 @@ class FastAccelStepperEngine {
   // The first three steppers use mcpwm0, the next three steppers use mcpwm1
   //
   // AVR:
-  // Only the pins connected to OC1A and OC1B are allowed
+  // Only the pins connected to OC4A and OC4B are allowed
   //
   // If no stepper resources available or pin is wrong, then NULL is returned
   FastAccelStepper* stepperConnectToPin(uint8_t step_pin);

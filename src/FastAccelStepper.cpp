@@ -72,15 +72,15 @@ void FastAccelStepperEngine::init() {
   // Initialize timer for stepper background task and correct time base
   noInterrupts();
 
-  // Set WGM13:0 to all zero => Normal mode
-  TCCR1A &= ~(_BV(WGM11) | _BV(WGM10));
-  TCCR1B &= ~(_BV(WGM13) | _BV(WGM12));
+  // Set WGM43:0 to all zero => Normal mode
+  TCCR4A &= ~(_BV(WGM41) | _BV(WGM40));
+  TCCR4B &= ~(_BV(WGM43) | _BV(WGM42));
 
   // Set prescaler to 1
-  TCCR1B = (TCCR1B & ~(_BV(CS12) | _BV(CS11) | _BV(CS10))) | _BV(CS10);
+  TCCR4B = (TCCR4B & ~(_BV(CS12) | _BV(CS11) | _BV(CS10))) | _BV(CS10);
 
   // enable OVF interrupt
-  TIMSK1 |= _BV(TOIE1);
+  TIMSK4 |= _BV(TOIE4);
 
   interrupts();
 #endif
@@ -266,7 +266,7 @@ void FastAccelStepper::isr_fill_queue() {
 #if defined(ARDUINO_ARCH_AVR)
 ISR(TIMER1_OVF_vect) {
   // disable OVF interrupt to avoid nesting
-  TIMSK1 &= ~_BV(TOIE1);
+  TIMSK4 &= ~_BV(TOIE4);
 
   // enable interrupts for nesting
   interrupts();
@@ -275,7 +275,7 @@ ISR(TIMER1_OVF_vect) {
   fas_engine->manageSteppers();
 
   // enable OVF interrupt again
-  TIMSK1 |= _BV(TOIE1);
+  TIMSK4 |= _BV(TOIE4);
 }
 #endif
 

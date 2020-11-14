@@ -3,12 +3,12 @@
 
 #if defined(ARDUINO_ARCH_AVR)
 
-#define Stepper_Toggle(X) TCCR1A = (TCCR1A | _BV(COM1##X##0)) & ~_BV(COM1##X##1)
-#define Stepper_Zero(X) TCCR1A = (TCCR1A | _BV(COM1##X##1)) & ~_BV(COM1##X##0)
+#define Stepper_Toggle(X) TCCR4A = (TCCR4A | _BV(COM4##X##0)) & ~_BV(COM4##X##1)
+#define Stepper_Zero(X) TCCR4A = (TCCR4A | _BV(COM4##X##1)) & ~_BV(COM4##X##0)
 #define Stepper_Disconnect(X) \
-  TCCR1A = (TCCR1A & ~(_BV(COM1##X##1) | _BV(COM1##X##0)))
+  TCCR4A = (TCCR4A & ~(_BV(COM4##X##1) | _BV(COM4##X##0)))
 #define Stepper_IsToggling(X) \
-  ((TCCR1A & (_BV(COM1##X##0) | _BV(COM1##X##1))) == _BV(COM1##X##0))
+  ((TCCR4A & (_BV(COM4##X##0) | _BV(COM4##X##1))) == _BV(COM4##X##0))
 
 // Here are the global variables to interface with the interrupts
 StepperQueue fas_queue[NUM_QUEUES];
@@ -20,26 +20,26 @@ void StepperQueue::init(uint8_t queue_num, uint8_t step_pin) {
   pinMode(step_pin, OUTPUT);
   if (step_pin == stepPinStepperA) {
     noInterrupts();
-    OCR1A = 32768;  // definite start point
+    OCR4A = 32768;  // definite start point
     Stepper_Disconnect(A);
-    TCCR1C = _BV(FOC1A);    // force compare to ensure disconnect
-    TIFR1 = _BV(OCF1A);     // clear interrupt flag
-    TIMSK1 |= _BV(OCIE1A);  // enable compare A interrupt
+    TCCR4C = _BV(FOC4A);    // force compare to ensure disconnect
+    TIFR4 = _BV(OCF4A);     // clear interrupt flag
+    TIMSK4 |= _BV(OCIE4A);  // enable compare A interrupt
     interrupts();
   }
   if (step_pin == stepPinStepperB) {
     noInterrupts();
-    OCR1B = 32768;  // definite start point
+    OCR4B = 32768;  // definite start point
     Stepper_Disconnect(B);
-    TCCR1C = _BV(FOC1B);    // force compare to ensure disconnect
-    TIFR1 = _BV(OCF1B);     // clear interrupt flag
-    TIMSK1 |= _BV(OCIE1B);  // enable compare B interrupt
+    TCCR4C = _BV(FOC4B);    // force compare to ensure disconnect
+    TIFR4 = _BV(OCF4B);     // clear interrupt flag
+    TIMSK4 |= _BV(OCIE4B);  // enable compare B interrupt
     interrupts();
   }
 }
 
-#define AVR_STEPPER_ISR(CHANNEL, queue, ocr, foc)                            \
-  ISR(TIMER1_COMP##CHANNEL##_vect) {                                         \
+#define AR_STEPPER_ISR(CHANNEL, queue, ocr, foc)                            \
+  ISR(TIMER4_COMP##CHANNEL##_vect) {                                         \
     if (queue.skip) {                                                        \
       if ((--queue.skip) == 0) {                                             \
         Stepper_Toggle(CHANNEL);                                             \
@@ -49,7 +49,7 @@ void StepperQueue::init(uint8_t queue_num, uint8_t step_pin) {
     }                                                                        \
     uint8_t rp = queue.read_idx;                                             \
     if (Stepper_IsToggling(CHANNEL)) {                                       \
-      TCCR1C = _BV(foc); /* clear bit */                                     \
+      TCCR4C = _BV(foc); /* clear bit */                                     \
       struct queue_entry* e = &queue.entry[rp & QUEUE_LEN_MASK];             \
       if ((e->steps -= 2) > 1) {                                             \
         /* perform another step with this queue entry */                     \
@@ -92,8 +92,8 @@ void StepperQueue::init(uint8_t queue_num, uint8_t step_pin) {
                    digitalRead(queue.dirPin) == HIGH ? LOW : HIGH);          \
     }                                                                        \
   }
-AVR_STEPPER_ISR(A, fas_queue_A, OCR1A, FOC1A)
-AVR_STEPPER_ISR(B, fas_queue_B, OCR1B, FOC1B)
+AVR_STEPPER_ISR(A, fas_queue_A, OCR4A, FOC4A)
+AVR_STEPPER_ISR(B, fas_queue_B, OCR4B, FOC4B)
 
 bool StepperQueue::startQueue(struct queue_entry* e) {
   isRunning = true;

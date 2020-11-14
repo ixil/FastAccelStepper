@@ -6,8 +6,8 @@
 #include "FastAccelStepper.h"
 
 #if defined(ARDUINO_ARCH_AVR)
-#define stepPinStepperA 9  /* OC1A */
-#define stepPinStepperB 10 /* OC1B */
+#define stepPinStepperA 8  /* OC4A */
+#define stepPinStepperB 7 /* OC4B */
 #endif
 
 // Here are the global variables to interface with the interrupts

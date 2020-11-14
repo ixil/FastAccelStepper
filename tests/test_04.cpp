@@ -5,13 +5,13 @@
 #include "FastAccelStepper.h"
 #include "StepperISR.h"
 
-char TCCR1A;
-char TCCR1B;
-char TCCR1C;
-char TIMSK1;
-char TIFR1;
-unsigned short OCR1A;
-unsigned short OCR1B;
+char TCCR4A;
+char TCCR4B;
+char TCCR4C;
+char TIMSK4;
+char TIFR4;
+unsigned short OCR4A;
+unsigned short OCR4B;
 
 StepperQueue fas_queue[NUM_QUEUES];
 
