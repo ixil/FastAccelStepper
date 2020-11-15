@@ -264,7 +264,7 @@ void FastAccelStepper::isr_fill_queue() {
 }
 
 #if defined(ARDUINO_ARCH_AVR)
-ISR(TIMER1_OVF_vect) {
+ISR(TIMER4_OVF_vect) {
   // disable OVF interrupt to avoid nesting
   TIMSK4 &= ~_BV(TOIE4);
 
