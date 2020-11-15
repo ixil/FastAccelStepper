@@ -38,7 +38,7 @@ void StepperQueue::init(uint8_t queue_num, uint8_t step_pin) {
   }
 }
 
-#define AR_STEPPER_ISR(CHANNEL, queue, ocr, foc)                            \
+#define AVR_STEPPER_ISR(CHANNEL, queue, ocr, foc)                            \
   ISR(TIMER4_COMP##CHANNEL##_vect) {                                         \
     if (queue.skip) {                                                        \
       if ((--queue.skip) == 0) {                                             \
