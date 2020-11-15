@@ -77,7 +77,7 @@ void FastAccelStepperEngine::init() {
   TCCR4B &= ~(_BV(WGM43) | _BV(WGM42));
 
   // Set prescaler to 1
-  TCCR4B = (TCCR4B & ~(_BV(CS12) | _BV(CS11) | _BV(CS10))) | _BV(CS10);
+  TCCR4B = (TCCR4B & ~(_BV(CS42) | _BV(CS41) | _BV(CS40))) | _BV(CS40);
 
   // enable OVF interrupt
   TIMSK4 |= _BV(TOIE4);
