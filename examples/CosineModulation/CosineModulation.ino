@@ -1,12 +1,12 @@
 #include "FastAccelStepper.h"
 
-#define dirPinStepper1 5
-#define enablePinStepper1 6
-#define stepPinStepper1 9 /* OC1A */
+#define dirPinStepper1 23
+#define enablePinStepper1 25
+#define stepPinStepper1 6 /* OC1A */
 
-#define dirPinStepper2 7
-#define enablePinStepper2 8
-#define stepPinStepper2 10 /* OC1B */
+#define dirPinStepper2 22
+#define enablePinStepper2 24
+#define stepPinStepper2 7 /* OC1B */
 
 #define LED 13
 

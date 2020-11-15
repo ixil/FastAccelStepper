@@ -18,10 +18,10 @@ const uint8_t led_pin = 13;  // turn off with PIN_UNDEFINED
 const struct stepper_config_s stepper_config[MAX_STEPPER] = {
     {
       // stepper 1 shall be connected to OC1A
-      step : 9,
-      enable_low_active : 6,
+      step : 6,
+      enable_low_active : 23,
       enable_high_active : PIN_UNDEFINED,
-      direction : 5,
+      direction : 25,
       direction_high_count_up : true,
       auto_enable : true,
       on_delay_us : 500000,
@@ -29,10 +29,10 @@ const struct stepper_config_s stepper_config[MAX_STEPPER] = {
     },
     {
       // stepper 2 shall be connected to OC1B
-      step : 10,
-      enable_low_active : 8,
+      step : 7,
+      enable_low_active : 22,
       enable_high_active : PIN_UNDEFINED,
-      direction : 7,
+      direction : 24,
       direction_high_count_up : true,
       auto_enable : true,
       on_delay_us : 5000,

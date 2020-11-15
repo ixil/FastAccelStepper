@@ -4,7 +4,7 @@
 #define dirPinStepper 22
 
 // for avr: either use pin 9 or 10 aka OC1A or OC1B
-#define stepPinStepper 23
+#define stepPinStepper 6
 
 FastAccelStepperEngine engine = FastAccelStepperEngine();
 FastAccelStepper *stepper;
