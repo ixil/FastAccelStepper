@@ -16,7 +16,7 @@ then
 	python3 get-platformio.py
 
 	pio platform install "atmelavr"
-	pio platform install "espressif32"
+	# pio platform install "espressif32"
 fi
 
 rm -fR pio_dirs
@@ -37,7 +37,7 @@ done
 set -e
 for i in pio_dirs/*
 do
-	for p in avr esp32 esp32_debug
+	for p in megaatmega2560 megaatmega2560_debug
 	do
 		echo $p: $i
 		(cd $i;pio run -s -e $p)
