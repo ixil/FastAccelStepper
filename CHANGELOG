@@ -1,3 +1,107 @@
+0.12.2:
+- StepperDemo modification:
+    - Enable direct drive feature in StepperDemo for esp32
+    - While direct driving, check if the signals can be applied
+    - Add test mode (enter with t). Here can select stepper, a test sequence and run it
+    - In total four test sequences implemented until now
+- Add detachFromPin() and reattachToPin() to the API. Shouldn't be used from an application.
+
+0.12.1:
+- implement runForward()/runBackward()
+- avr: fix interrupt for direction change
+- StepperDemo modification:
+    - r: Call ESP.restart() to check for issue #6
+
+0.12.0:
+- reduce data type for command queue entries' ticks value from uint32_t to uint16_t
+   => remove ABS_MAX_AQE_TICKS
+- each command in queue can now emit up to 255 steps
+- StepperDemo modification:
+    - r: Call ESP.restart() to check for issue #6
+    - Disable direct drive for esp32
+- AutoEnable-Pin can be shared by steppers
+- avr: fix interrupt for direction change
+
+0.11.3:
+- ABSOLUTE_MAX_AQE_TICKS is now 65535
+
+0.11.2:
+- auto enable on delay implemented by filling the queue with pause
+  This allows approx. 60/120 ms delay for avr/esp32
+- esp32: two motors in parallel could lead to uncontrolled running steppers.
+         Reason was the wrong registration of the shared interrupt service routine
+
+0.11.1:
+- AVR works again
+- Limit auto enable on delay to approx. 16ms due to further bugs
+
+0.11.0:
+- BROKEN ON AVR
+- Slowest speed is TICKS_PER_S/0xffffffff, which is ~268s between steps
+- ABS_MAX_TICKS renamed to ABS_MAX_AQE_TICKS. Only applicable to raw commands
+- Done: Extend command queue entry to perform delay only without step (steps=0) to reduce the 1.0 steps/s
+
+0.10.0:
+- setSpeed() silently imposes lower limit for period
+- esp32: step pulse length is for high speed with 50% duty cycle and for low speed fixed at 2ms
+- addQueueEntry() receives a stepper_command_s struct
+- esp32: Task priority of ramp generator task has been set to max Priority.
+- StepperDemo extended:
+	- Q: Quiet the usage info, which takes time to be transmitted.
+      Try this NEMA-17 without load:
+			M1 A1000000 V20 P1000 W P0 W P500 W P-500 W P0
+
+0.9.5:
+- Fix sudden CPU reset on high interrupt load for avr variant. Issue #12
+
+0.9.4:
+- Fix possible race condition in check_for_auto_disable()
+- StepperDemo extended:
+	- blocking wait for stepper stop by press W (dangerous: can deadlock)
+
+0.9.3:
+- Fix auto on delay: Delay way always replied, even if the output is still enabled
+
+0.9.2:
+- Implement new function applySpeedAcceleration()
+- StepperDemo extended:
+	- trigger applySpeedAcceleration by press U
+- fix possible bug in move/moveTo while keepRunning is set
+
+0.9.1:
+- reduce interrupt load on esp32
+
+0.9.0:
+- implement forceStopAndNewPosition()
+- StepperDemo extended:
+	- trigger forceStopAndNewPosition by press X
+    - set position with press @
+    - keep motor running with press K
+- addQueueEntry() returns now an int8_t instead of an int
+- move and moveTo goes to the closest position (+/-2147483647).
+  This means continues move(1000) will let the stepper turn in same direction,
+  while the position wraps around: 0,1,...,2147483647,-2147483648,-2147483647,...,-1,0,1,...
+- add keepRunning() to let the motor continuously run in same direction.
+- rename isrSpeedControlEnabled() to isRampGeneratorActive()
+
+0.8.3:
+- AVR: timer compare interrupts are only enabled, if stepper is running.
+- AVR: on arrival of a command, the queue is started with few µs delay
+- Implement backwardStep() and forwardStep()
+- Bug solved: Speed changes at very low speed with high acceleration values are not always performed
+  Actually speed with period times > 268436µs has not worked at all before.
+
+0.8.2:
+- Solved issue: Queue is filled too much, which cause slow response to speed/acceleration changes
+  => Queue is filled to max ~10ms into the future.
+
+0.8.1:
+- Fix issue #8: Long step times are less accurate than short ones
+  => All time delta between steps are cycle accurate
+- Add getPeriodAfterCommandsCompleted() to API
+- Fix bug due to AutoEnable at ramp start (can find at low speeds)
+- StepperDemo outputs: F_CPU/TICKS_PER_S and stepper period at queue end
+
 0.8.0:
 - Change direction with running motor is possible !!!
 - stopMove() can be called from interrupt routine

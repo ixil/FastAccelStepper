@@ -21,22 +21,26 @@
 #define TEST_CREATE_QUEUE_CHECKSUM 0
 #endif
 
-#if defined(TEST)
-#define MAX_STEPPER 2
-#define TICKS_PER_S 16000000L
-#elif defined(ARDUINO_ARCH_AVR)
-#define MAX_STEPPER 2
-#define TICKS_PER_S F_CPU
-#elif defined(ARDUINO_ARCH_ESP32)
-#define MAX_STEPPER 6
-#define TICKS_PER_S 16000000L
-#else
-#define MAX_STEPPER 6
-#define TICKS_PER_S 16000000L
+#if !defined(ARDUINO_ARCH_ESP32) && !defined(ARDUINO_ARCH_AVR)
+#ifndef F_CPU
+#define F_CPU 16000000L
+#endif
 #endif
 
-#define MIN_DELTA_TICKS (F_CPU / 50000)
-#define ABSOLUTE_MAX_TICKS (255L * 65535)
+#if defined(ARDUINO_ARCH_ESP32)
+#define MIN_DELTA_TICKS (TICKS_PER_S / 200000)
+#elif defined(ARDUINO_ARCH_AVR)
+// AVR:
+// tests on arduino nano indicate, that at 40ksteps/s in dual stepper mode,
+// the main task is freezing (StepperDemo).
+// Thus the limitation set here is set to 25kSteps/s as stated in the README.
+#define MIN_DELTA_TICKS (TICKS_PER_S / 25000)
+#else
+#define MIN_DELTA_TICKS (TICKS_PER_S / 50000)
+#endif
+
+#define MAX_DELTA_TICKS 0xffffffff
+#define MAX_ON_DELAY_TICKS ((uint32_t)(65535 * (QUEUE_LEN - 1)))
 
 #define PIN_UNDEFINED 255
 
@@ -59,6 +63,8 @@ class FastAccelStepper {
   //	setEnablePin(pin2, false);
   // If pin1 and pin2 are same, then the last call will be used.
   void setEnablePin(uint8_t enablePin, bool low_active_enables_stepper = true);
+  uint8_t getEnablePinHighActive() { return _enablePinHighActive; }
+  uint8_t getEnablePinLowActive() { return _enablePinLowActive; }
 
   // using enableOutputs/disableOutputs the stepper can be enabled and disabled
   void enableOutputs();
@@ -68,9 +74,10 @@ class FastAccelStepper {
   // afterwards. The delay from stepper enabled till first step and from
   // last step to stepper disabled can be separately adjusted.
   // The delay from enable to first step is done in ticks and as such is limited
-  // to ABSOLUTE_MAX_TICKS, which translates approximately to 1s (for esp32 and
-  // avr at 16 MHz). The delay till disable is done in period interrupt/task
-  // with 4 or 10 ms repetition rate and as such is with several ms jitter.
+  // to MAX_ON_DELAY_TICKS, which translates approximately to 120ms for
+  // esp32 and 60ms for avr at 16 MHz). The delay till disable is done in period
+  // interrupt/task with 4 or 10 ms repetition rate and as such is with several
+  // ms jitter.
   void setAutoEnable(bool auto_enable);
   int setDelayToEnable(uint32_t delay_us);
   void setDelayToDisable(uint16_t delay_ms);
@@ -102,7 +109,8 @@ class FastAccelStepper {
   //      t = 0.2 s/steps = 200000 us/step
   //      setSpeed(200000);
   //
-  // New value will be used after call to move/moveTo/stopMove e.g. move(0)
+  // New value will be used after call to
+  // move/moveTo/stopMove/applySpeedAcceleration
   //
   void setSpeed(uint32_t min_step_us);
 
@@ -111,9 +119,14 @@ class FastAccelStepper {
   //  If for example the speed should ramp up from 0 to 10000 steps/s within
   //  10s, then the acceleration is 10000 steps/s / 10s = 1000 steps/s²
   //
-  // New value will be used after call to move/moveTo/stopMove e.g. move(0)
+  // New value will be used after call to
+  // move/moveTo/stopMove/applySpeedAcceleration
   //
   void setAcceleration(uint32_t step_s_s);
+
+  // This function applies new values for speed/acceleration.
+  // This is convenient especially, if we stepper is set to continuous running.
+  void applySpeedAcceleration();
 
   // start/move the stepper for (move) steps or to an absolute position.
   //
@@ -122,29 +135,52 @@ class FastAccelStepper {
   // relative to the target position of any ongoing move ! If the new
   // move/moveTo for an ongoing command would reverse the direction, then the
   // command is silently ignored.
-  int move(int32_t move);
-  int moveTo(int32_t position);
+  int8_t move(int32_t move);
+  int8_t moveTo(int32_t position);
 #define MOVE_OK 0
-#define MOVE_ERR_OVERFLOW -1  // relative move has caused an overflow
 #define MOVE_ERR_NO_DIRECTION_PIN \
-  -2  // negative direction requested, but no direction pin defined
-#define MOVE_ERR_SPEED_IS_UNDEFINED -3
-#define MOVE_ERR_ACCELERATION_IS_UNDEFINED -4
-#define MOVE_ERR_STOP_ONGOING -5
+  -1 /* negative direction requested, but no direction pin defined */
+#define MOVE_ERR_SPEED_IS_UNDEFINED -2
+#define MOVE_ERR_ACCELERATION_IS_UNDEFINED -3
+#define MOVE_ERR_STOP_ONGOING -4
+
+  // This command flags the stepper to keep run continuously into current
+  // direction. It can be stopped by stopMove.
+  // Be aware, if the motor is currently decelerating towards reversed
+  // direction, then keepRunning() will speed up again and not finish direction
+  // reversal first.
+  void keepRunning();
+  bool isRunningContinuously() { return rg.isRunningContinuously(); }
+
+  // This command just let the motor run continuously in one direction.
+  // If the motor is running in the opposite direction, it will reverse
+  int8_t runForward() { return rg.startRun(true); }
+  int8_t runBackward() { return rg.startRun(false); }
+
+  // forwardStep()/backwardstep() can be called, while stepper is not moving
+  // If stepper is moving, this is a no-op.
+  // backwardStep() is a no-op, if no direction pin defined
+  // It will immediately let the stepper perform one single step.
+  // If blocking = true, then the routine will wait till isRunning() is false
+  void forwardStep(bool blocking = false);
+  void backwardStep(bool blocking = false);
 
   // stop the running stepper as fast as possible with deceleration
   // This only sets a flag and can be called from an interrupt !
-  // Another move/moveTo must wait, till the motor has stopped
+  // Another move/moveTo must wait, till the motor has stopped.
+  // Similarly keepRunning() is ignored, too.
   void stopMove();
+
+  // stop the running stepper immediately and set new_pos as new position
+  // This can be called from an interrupt !
+  void forceStopAndNewPosition(uint32_t new_pos);
 
   // get the target position for the current move
   inline int32_t targetPos() { return rg.targetPosition(); }
 
   // Low level acccess via command queue
   // stepper queue management (low level access)
-  //	delta_ticks is multiplied by (1/TICKS_PER_S) s
-  //	steps must be less than 128 aka 7 bits
-  int addQueueEntry(uint32_t delta_ticks, uint8_t steps, bool dir_high);
+  int8_t addQueueEntry(struct stepper_command_s* cmd);
 
   // Return codes for addQueueEntry
 #define AQE_OK 0
@@ -161,6 +197,10 @@ class FastAccelStepper {
   // completed
   int32_t getPositionAfterCommandsCompleted();
 
+  // Get the future speed of the stepper after all commands in queue are
+  // completed. This is in µs. Returns 0 for stopped motor
+  uint32_t getPeriodAfterCommandsCompleted();
+
   // Set the future position of the stepper after all commands in queue are
   // completed. This has immediate effect to getCurrentPosition().
   void setPositionAfterCommandsCompleted(int32_t new_pos);
@@ -172,23 +212,12 @@ class FastAccelStepper {
 #define RAMP_STATE_DECELERATE_TO_STOP 2
 #define RAMP_STATE_DECELERATE 3
 #define RAMP_STATE_COAST 4
+#define RAMP_STATE_REVERSE 5
 #define RAMP_STATE_MASK 0x0f
-#define RAMP_MOVE_UP 0x80
-#define RAMP_MOVE_DOWN 0x40
-#define RAMP_MOVE_MASK 0xc0
   inline uint8_t rampState() { return rg.rampState(); }
 
   // returns true, if the ramp generation is active
-  inline bool isrSpeedControlEnabled() {
-    return rg.rampState() != RAMP_STATE_IDLE;
-  };
-
-  // This variable/these functions should NEVER be modified/called by the
-  // application
-  inline void manage() {
-    isr_fill_queue();
-    check_for_auto_disable();
-  }
+  inline bool isRampGeneratorActive() { return rg.isRampGeneratorActive(); }
 
 #if (TEST_MEASURE_ISR_SINGLE_FILL == 1)
   uint32_t max_micros;
@@ -196,6 +225,14 @@ class FastAccelStepper {
 #if (TEST_CREATE_QUEUE_CHECKSUM == 1)
   uint32_t checksum();
 #endif
+
+  // These should not be called by the application
+  void fill_queue();
+  bool needAutoDisable();
+  bool agreeWithAutoDisable();
+  bool usesAutoEnablePin(uint8_t pin);
+  void detachFromPin();
+  void reAttachToPin();
 
  private:
   RampGenerator rg;
@@ -207,11 +244,9 @@ class FastAccelStepper {
   uint8_t _enablePinHighActive;
   uint8_t _queue_num;
 
+  uint32_t _on_delay_ticks;
   uint16_t _off_delay_count;
   uint16_t _auto_disable_delay_counter;
-  void isr_fill_queue();
-  void isr_single_fill_queue();
-  void check_for_auto_disable();
 };
 
 class FastAccelStepperEngine {

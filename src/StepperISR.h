@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "FastAccelStepper.h"
+#include "common.h"
 
 #if defined(ARDUINO_ARCH_AVR)
 #define stepPinStepperA 8  /* OC4A */
@@ -42,6 +43,7 @@
 #define TICKS_FOR_STOPPED_MOTOR 0xffffffff
 
 #if defined(ARDUINO_ARCH_ESP32)
+#include <driver/gpio.h>
 #include <driver/mcpwm.h>
 #include <driver/pcnt.h>
 #include <soc/mcpwm_reg.h>
@@ -53,44 +55,38 @@ struct mapping_s {
   uint8_t timer;
   mcpwm_io_signals_t pwm_output_pin;
   pcnt_unit_t pcnt_unit;
-  int input_sig_index;
+  uint8_t input_sig_index;
   uint32_t timer_tez_int_clr;
   uint32_t timer_tez_int_ena;
 };
 #endif
 
 struct queue_entry {
-  uint8_t steps;  // coding is bit7..1 is nr of steps and bit 0 is direction
-  uint8_t n_periods;
-  uint16_t period;
+  uint8_t steps;  // if 0,  then the command only adds a delay
+  bool toggle_dir;
+  uint16_t ticks;
 };
 class StepperQueue {
  public:
   struct queue_entry entry[QUEUE_LEN];
   uint8_t read_idx;  // ISR stops if readptr == next_writeptr
   uint8_t next_write_idx;
-  uint32_t on_delay_ticks;
   uint8_t dirPin;
   bool dirHighCountsUp;
-  bool isRunning;
+  volatile bool isRunning;
 #if defined(ARDUINO_ARCH_ESP32)
   const struct mapping_s* mapping;
-  // These two variables are for the mcpwm interrupt
-  uint8_t current_period;
-  uint8_t current_n_periods;
 #endif
 #if defined(ARDUINO_ARCH_AVR)
+  bool isChannelA;
   // This is used in the timer compare unit as extension of the 16 timer
-  uint8_t skip;
-  uint16_t period;
 #endif
+  uint16_t ticks;
 #if (TEST_CREATE_QUEUE_CHECKSUM == 1)
   uint8_t checksum;
 #endif
 
-  bool dir_at_queue_end;
-  int32_t pos_at_queue_end;     // in steps
-  uint32_t ticks_at_queue_end;  // in timer ticks, 0 on stopped stepper
+  struct queue_end_s queue_end;
 
   void init(uint8_t queue_num, uint8_t step_pin);
   inline bool isQueueFull() {
@@ -108,54 +104,41 @@ class StepperQueue {
     inject_fill_interrupt(0);
     return res;
   }
-  int addQueueEntry(uint32_t ticks, uint8_t steps, bool dir) {
-    if (steps >= 128) {
-      return AQE_STEPS_ERROR;
-    }
-    if (steps == 0) {
-      return AQE_STEPS_ERROR;
-    }
-    if (ticks > ABSOLUTE_MAX_TICKS) {
-      return AQE_TOO_HIGH;
-    }
-
-    if (!isRunning) {
-      if (on_delay_ticks > 0) {
-        int res = _addQueueEntry(on_delay_ticks, 1, dir);
-        if ((res != AQE_OK) || (steps == 1)) {
-          return res;
-        }
-        steps -= 1;
-      }
-    }
-    return _addQueueEntry(ticks, steps, dir);
-  }
-
-  int _addQueueEntry(uint32_t ticks, uint8_t steps, bool dir) {
+  int addQueueEntry(struct stepper_command_s* cmd) {
     if (isQueueFull()) {
       return AQE_FULL;
     }
-    uint16_t period;
-    uint8_t n_periods;
-    if (ticks > 65535) {
-      n_periods = ticks >> 16;
-      n_periods += 1;
-      period = ticks / n_periods;
-    } else {
-      period = ticks;
-      n_periods = 1;
+    uint32_t period_ticks = cmd->ticks;
+    if (period_ticks > 65535) {
+      return AQE_TOO_HIGH;
     }
+    uint16_t period = period_ticks;
 
     uint8_t wp = next_write_idx;
     struct queue_entry* e = &entry[wp & QUEUE_LEN_MASK];
-    pos_at_queue_end += (dir == dirHighCountsUp) ? steps : -steps;
-    ticks_at_queue_end = ticks;
-    steps <<= 1;
-    e->period = period;
-    e->n_periods = n_periods;
-    // check for dir pin value change
-    e->steps = (dir != dir_at_queue_end) ? steps | 0x01 : steps;
-    dir_at_queue_end = dir;
+    uint8_t steps = cmd->steps;
+    queue_end.pos += cmd->count_up ? steps : -steps;
+    if (steps == 0) {
+      // This is a pause
+      uint32_t tfls = queue_end.ticks_from_last_step;
+      if (tfls <= 0xffff0000) {
+        queue_end.ticks_from_last_step = tfls + cmd->ticks;
+      }
+    } else {
+      uint32_t tfls = queue_end.ticks_from_last_step;
+      if (tfls <= 0xffff0000) {
+        queue_end.ticks = tfls + cmd->ticks;
+      } else {
+        queue_end.ticks = tfls;
+      }
+      queue_end.ticks_from_last_step = 0;
+    }
+    bool dir = (cmd->count_up == dirHighCountsUp);
+    e->steps = steps;
+    e->toggle_dir = (dir != queue_end.dir) ? true : false;
+    e->ticks = period;
+    queue_end.dir = dir;
+    queue_end.count_up = cmd->count_up;
 #if (TEST_CREATE_QUEUE_CHECKSUM == 1)
     {
       // checksum is in the struct and will updated here
@@ -173,33 +156,60 @@ class StepperQueue {
 #endif
     wp++;
     noInterrupts();
-    if (isRunning) {
-      next_write_idx = wp;
-      interrupts();
-    } else {
-      interrupts();
-      if (!startQueue(e)) {
-        next_write_idx = wp;
-      }
+    next_write_idx = wp;
+    bool run = isRunning;
+    interrupts();
+    if (!run) {
+      startQueue();
     }
     return AQE_OK;
   }
+  bool hasTicksInQueue(uint32_t min_ticks) {
+    noInterrupts();
+    uint8_t rp = read_idx;
+    uint8_t wp = next_write_idx;
+    interrupts();
+    if (wp == rp) {
+      return 0;
+    }
+    rp++;  // ignore currently processed entry
+    while (wp != rp) {
+      struct queue_entry* e = &entry[rp & QUEUE_LEN_MASK];
+      uint32_t tmp = e->ticks;
+      uint8_t steps = max(e->steps, 1);
+      tmp *= steps;
+      if (tmp >= min_ticks) {
+        return true;
+      }
+      min_ticks -= tmp;
+      rp++;
+    }
+    return false;
+  }
 
-  bool startQueue(struct queue_entry* e);
+  // startQueue is called, if motor is not running.
+  void startQueue();
+  void forceStop();
   void _initVars() {
     dirPin = PIN_UNDEFINED;
-    on_delay_ticks = 0;
     read_idx = 0;
     next_write_idx = 0;
-    dir_at_queue_end = true;
+    queue_end.dir = true;
+    queue_end.count_up = true;
+    queue_end.pos = 0;
+    queue_end.ticks = TICKS_FOR_STOPPED_MOTOR;
+    queue_end.ticks_from_last_step = 0xffffffff;
     dirHighCountsUp = true;
-    pos_at_queue_end = 0;
-    ticks_at_queue_end = TICKS_FOR_STOPPED_MOTOR;
     isRunning = false;
 #if (TEST_CREATE_QUEUE_CHECKSUM == 1)
     checksum = 0;
 #endif
   }
+#if defined(ARDUINO_ARCH_ESP32)
+  uint8_t _step_pin;
+#endif
+  void connect();
+  void disconnect();
 };
 
 extern StepperQueue fas_queue[NUM_QUEUES];

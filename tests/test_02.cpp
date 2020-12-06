@@ -19,81 +19,7 @@ void inject_fill_interrupt(int mark) {}
 void noInterrupts() {}
 void interrupts() {}
 
-uint32_t normalize_speed(uint32_t ticks) {
-  uint32_t d = (ticks >> 16) + 1;
-  uint32_t period = ticks / d;
-  return period * d;
-}
-
-class RampChecker {
- public:
-  RampChecker();
-  void check_section(struct queue_entry *e);
-
-  uint32_t total_ticks;
-  uint32_t last_dt;
-  uint32_t min_dt;
-  bool increase_ok;
-  bool flat_ok;
-  bool decrease_ok;
-  bool first;
-  uint32_t accelerate_till;
-  uint32_t coast_till;
-  uint32_t pos;
-};
-
-RampChecker::RampChecker() {
-  total_ticks = 0;
-  last_dt = ~0;
-  min_dt = ~0;
-  first = true;
-  increase_ok = true;
-  decrease_ok = false;
-  coast_till = 0;
-  accelerate_till = 0;
-  pos = 0;
-}
-void RampChecker::check_section(struct queue_entry *e) {
-  uint8_t steps = e->steps;
-  if (!first) {
-    assert((steps & 1) == 0);
-  }
-  steps >>= 1;
-  assert(steps >= 1);
-  pos += steps;
-  uint32_t start_dt = e->period * e->n_periods;
-
-  min_dt = min(min_dt, start_dt);
-  float accel = 0;
-  if (!first) {
-    accel = (16000000.0 / start_dt - 16000000.0 / last_dt) /
-            (1.0 / 16000000.0 * start_dt);
-  }
-  printf(
-      "process command in ramp checker @%.6fs: steps = %d last = %d start = %d "
-      " min_dt "
-      "= %d   accel=%.6f\n",
-      total_ticks / 16000000.0, steps, last_dt, start_dt, min_dt, accel);
-
-  total_ticks += steps * start_dt;
-  assert(steps * start_dt >= 0);
-
-  if (last_dt > start_dt) {
-    assert(increase_ok);
-    accelerate_till = total_ticks;
-    decrease_ok = true;
-  } else if (last_dt < start_dt) {
-    if (increase_ok) {
-      coast_till = total_ticks;
-    }
-    assert(decrease_ok);
-    increase_ok = false;
-  }
-
-  last_dt = start_dt;
-
-  first = false;
-}
+#include "RampChecker.h"
 
 void init_queue() {
   fas_queue[0].read_idx = 0;
@@ -112,10 +38,10 @@ void basic_test_with_empty_queue() {
   assert(s.isQueueEmpty());
   s.setSpeed(10000);
   s.setAcceleration(100);
-  s.manage();
+  s.fill_queue();
   assert(s.isQueueEmpty());
   s.move(1000);
-  s.manage();
+  s.fill_queue();
   assert(!s.isQueueEmpty());
   for (int i = 0; i < 1000; i++) {
     if (false) {
@@ -126,23 +52,23 @@ void basic_test_with_empty_queue() {
           s.getPositionAfterCommandsCompleted(),
           s.isQueueEmpty() ? "yes" : "no");
     }
-    if (!s.isrSpeedControlEnabled()) {
+    if (!s.isRampGeneratorActive()) {
       break;
     }
-    s.manage();
+    s.fill_queue();
     while (!s.isQueueEmpty()) {
       rc.check_section(
           &fas_queue_A.entry[fas_queue[0].read_idx & QUEUE_LEN_MASK]);
       fas_queue[0].read_idx++;
     }
   }
-  test(!s.isrSpeedControlEnabled(), "too many commands created");
-  printf("%d\n", rc.min_dt);
-  test(rc.min_dt == normalize_speed(160000), "max speed not reached");
+  test(!s.isRampGeneratorActive(), "too many commands created");
+  printf("min_dt=%u\n", rc.min_dt);
+  test(rc.min_dt == 160000, "max speed not reached");
 }
 
 void test_with_pars(const char *name, int32_t steps, uint32_t travel_dt,
-                    uint16_t accel, bool reach_max_speed, float min_time,
+                    uint32_t accel, bool reach_max_speed, float min_time,
                     float max_time, float allowed_ramp_time_delta) {
   printf("Test %s test_with_pars steps=%d travel_dt=%d accel=%d dir=%s\n", name,
          steps, travel_dt, accel, reach_max_speed ? "CW" : "CCW");
@@ -155,10 +81,10 @@ void test_with_pars(const char *name, int32_t steps, uint32_t travel_dt,
   assert(s.isQueueEmpty());
   s.setSpeed(travel_dt);
   s.setAcceleration(accel);
-  s.manage();
+  s.fill_queue();
   assert(s.isQueueEmpty());
   s.move(steps);
-  s.manage();
+  s.fill_queue();
   assert(!s.isQueueEmpty());
   float old_planned_time_in_buffer = 0;
   char fname[100];
@@ -174,21 +100,22 @@ void test_with_pars(const char *name, int32_t steps, uint32_t travel_dt,
           s.getPositionAfterCommandsCompleted(),
           s.isQueueEmpty() ? "yes" : "no");
     }
-    if (!s.isrSpeedControlEnabled()) {
+    if (!s.isRampGeneratorActive()) {
       break;
     }
-    s.manage();
+    s.fill_queue();
     uint32_t from_dt = rc.total_ticks;
     while (!s.isQueueEmpty()) {
       rc.check_section(
           &fas_queue_A.entry[fas_queue[0].read_idx & QUEUE_LEN_MASK]);
       fas_queue[0].read_idx++;
-      fprintf(gp_file, "%.6f %d\n", rc.total_ticks / 1000000.0,
-              1000000 / rc.last_dt);
+      fprintf(gp_file, "%.6f %.2f %d\n", rc.total_ticks / 1000000.0,
+              16000000.0 / rc.last_dt, rc.last_dt);
     }
     uint32_t to_dt = rc.total_ticks;
     float planned_time = (to_dt - from_dt) * 1.0 / 16000000;
-    printf("planned time in buffer: %.6fs\n", planned_time);
+    printf("planned time in buffer: %.6fs (old=%.6fs)\n", planned_time,
+           old_planned_time_in_buffer);
     // This must be ensured, so that the stepper does not run out of commands
     assert((i == 0) || (old_planned_time_in_buffer > 0.005));
     old_planned_time_in_buffer = planned_time;
@@ -197,7 +124,8 @@ void test_with_pars(const char *name, int32_t steps, uint32_t travel_dt,
   fprintf(gp_file, "plot $data using 1:2 with linespoints\n");
   fprintf(gp_file, "pause -1\n");
   fclose(gp_file);
-  test(!s.isrSpeedControlEnabled(), "too many commands created");
+  printf("TEST=%s\n", name);
+  test(!s.isRampGeneratorActive(), "too many commands created");
   printf("Total time  %f < %f < %f ?\n", min_time, rc.total_ticks / 16000000.0,
          max_time);
   test(rc.total_ticks / 16000000.0 > min_time, "ramp too fast");
@@ -274,12 +202,12 @@ int main() {
   test_with_pars("f12", 1000, 20, 1000, false, 2 * 1.0 - 0.1, 2 * 1.0 + 0.1,
                  0.2);
 
-  // ramp time 50s, thus with 500s max speed not reached. 250steps need 10s
-  test_with_pars("f13", 500, 4000, 5, false, 20.0 - 0.6, 20.0 + 0.2, 0.2);
-  // ramp time 50s, thus with 1000s max speed not reached. 1000steps need 20s
-  test_with_pars("f14", 2000, 4000, 5, false, 40.0 - 0.6, 40.0 + 0.2, 0.2);
+  // ramp time 50s, thus with 500steps max speed not reached. 250steps need 10s
+  //  test_with_pars("f13", 500, 4000, 5, false, 20.0 - 0.6, 20.0 + 0.2, 0.2);
+  ////  test_with_pars("f14", 2000, 4000, 5, false, 40.0 - 0.6, 40.0 + 0.2,
+  /// 0.2);
   // ramp time 50s with 6250 steps => 4000 steps at max speed using 1s
-  test_with_pars("f15", 12500, 4000, 5, true, 100.0 - 0.7, 100.0 + 0.2, 0.2);
+  test_with_pars("f15", 12600, 4000, 5, true, 100.0 - 0.7, 100.0 + 0.2, 0.2);
   // ramp time 50s with 6250 steps => 4000 steps at max speed using 16s
   test_with_pars("f16", 16500, 4000, 5, true, 116.0 - 0.7, 116.0 + 0.2, 0.2);
 
@@ -288,5 +216,15 @@ int main() {
 
   // ramp time  625s, 7812500 steps
   // test_with_pars("f18", 2000000, 40, 40, false, 2*223.0, 2*223.0);
+
+  // slow ramp time
+  //  test_with_pars("f19", 1000, 10, 1, false, 62.0, 63.0, 1.0);
+
+  // name, steps, travel_dt, accel, reach_max_speed, min_time, max_time,
+  // allowed_ramp_time_delta slow ramp time Those are anomalies (see github
+  // issue #8) on avr, but not on PC
+  //  test_with_pars("f20", 50000, 270000, 10, true, 62.0, 63.0, 1.0);
+  //  test_with_pars("f20", 20, 270000, 1, true, 62.0, 63.0, 1.0);
+
   printf("TEST_02 PASSED\n");
 }

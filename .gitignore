@@ -1,9 +1,11 @@
 *.swp
 *.o
+*.py
 .pio
 pio_dirs
 examples/*/*.h
 examples/*/*.cpp
+!examples/*/test_*.cpp
 tests/test_[0-9][0-9]
 tests/FastAccelStepper.cpp
 tests/FastAccelStepper.h
@@ -13,4 +15,5 @@ tests/RampGenerator.cpp
 tests/RampGenerator.h
 tests/StepperISR*.cpp
 tests/StepperISR.h
+tests/common.h
 tests/*.gnuplot
