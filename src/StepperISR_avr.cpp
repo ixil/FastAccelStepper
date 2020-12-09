@@ -61,7 +61,7 @@ void StepperQueue::init(uint8_t queue_num, uint8_t step_pin) {
       /* disable compare interrupt */                                 \
       TIMSK4 &= ~_BV(OCIE4##CHANNEL);                                 \
       /* force compare to ensure disconnect */                        \
-      TCCR4C = _BV(FOC1##CHANNEL);                                    \
+      TCCR4C = _BV(FOC4##CHANNEL);                                    \
       queue.isRunning = false;                                        \
       queue.queue_end.ticks = TICKS_FOR_STOPPED_MOTOR;                \
       return;                                                         \
@@ -89,13 +89,13 @@ void StepperQueue::startQueue() {
     noInterrupts();
     TIFR4 = _BV(OCF4A);     // clear interrupt flag
     TIMSK4 |= _BV(OCIE4A);  // enable compare A interrupt
-    OCR4A = TCNT1 + 40;     // definite start point
+    OCR4A = TCNT4 + 40;     // definite start point
     interrupts();
   } else {
     noInterrupts();
     TIFR4 = _BV(OCF4B);     // clear interrupt flag
     TIMSK4 |= _BV(OCIE4B);  // enable compare A interrupt
-    OCR4B = TCNT1 + 40;     // definite start point
+    OCR4B = TCNT4 + 40;     // definite start point
     interrupts();
   }
 }
